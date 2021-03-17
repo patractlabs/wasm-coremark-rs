@@ -11,4 +11,4 @@ path = "main.rs"
 [dependencies]
 wasmi = "0.8.0"
 wasmtime = "0.25.0"
-wat = "1.0.36"
+wabt = "0.10.0"

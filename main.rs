@@ -1,5 +1,13 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// env clock_ms
+fn clock_ms() -> i32 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("Clock may have gone backwards")
+        .as_millis() as i32
+}
+
 /// Wasmtime coremark
 fn wasmtime_coremark(b: &[u8]) {
     use wasmtime::{Linker, Module, Store};
@@ -8,12 +16,7 @@ fn wasmtime_coremark(b: &[u8]) {
     let mut linker = Linker::new(&store);
 
     linker
-        .func("env", "clock_ms", || {
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("Clock may have gone backwards")
-                .as_millis() as i32
-        })
+        .func("env", "clock_ms", || clock_ms())
         .expect("Link clock_ms failed");
 
     let res = linker
@@ -29,7 +32,62 @@ fn wasmtime_coremark(b: &[u8]) {
     println!("{:?}", res);
 }
 
+fn wasmi_coremark(b: &[u8]) {
+    use wasmi::{
+        Error, Externals, FuncInstance, FuncRef, ImportsBuilder, ModuleImportResolver,
+        ModuleInstance, NopExternals, RuntimeArgs, RuntimeValue, Signature, Trap, TrapKind,
+        ValueType,
+    };
+
+    /// Env resolver for wasmi
+    struct EnvResolver;
+
+    impl Externals for EnvResolver {
+        fn invoke_index(
+            &mut self,
+            index: usize,
+            _args: RuntimeArgs,
+        ) -> Result<Option<RuntimeValue>, Trap> {
+            match index {
+                0 => Ok(Some(RuntimeValue::from(clock_ms()))),
+                _ => Err(Trap::new(TrapKind::Unreachable)),
+            }
+        }
+    }
+
+    impl ModuleImportResolver for EnvResolver {
+        fn resolve_func(&self, field_name: &str, _signature: &Signature) -> Result<FuncRef, Error> {
+            Ok(FuncInstance::alloc_host(
+                Signature::new(&[][..], Some(ValueType::I32)),
+                match field_name {
+                    "clock_ms" => 0,
+                    _ => {
+                        return Err(Error::Instantiation(format!(
+                            "Export {} not found",
+                            field_name
+                        )))
+                    }
+                },
+            ))
+        }
+    }
+
+    let res = ModuleInstance::new(
+        &wasmi::Module::from_buffer(
+            wabt::wat2wasm(b).expect("Failed to parse `coremark-mininal.wat`"),
+        )
+        .expect("Failed to parse parsed `coremark-mininal.wasm`"),
+        &ImportsBuilder::default().with_resolver("env", &EnvResolver),
+    )
+    .expect("Init wasmi module of coremark-minial failed")
+    .assert_no_start()
+    .invoke_export("run", &[], &mut NopExternals);
+
+    println!("{:?}", res);
+}
+
 fn main() {
     let bytes = include_bytes!("coremark-minimal.wat");
     wasmtime_coremark(bytes);
+    wasmi_coremark(bytes);
 }
