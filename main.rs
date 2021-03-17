@@ -1,7 +1,6 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
-/// env clock_ms
+/// ENV clock_ms
 fn clock_ms() -> i32 {
+    use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("Clock may have gone backwards")
@@ -34,10 +33,21 @@ fn wasmtime_coremark(b: &[u8]) {
 
 fn wasmi_coremark(b: &[u8]) {
     use wasmi::{
-        Error, Externals, FuncInstance, FuncRef, ImportsBuilder, ModuleImportResolver,
+        Error, Externals, FuncInstance, FuncRef, HostError, ImportsBuilder, ModuleImportResolver,
         ModuleInstance, NopExternals, RuntimeArgs, RuntimeValue, Signature, Trap, TrapKind,
         ValueType,
     };
+
+    #[derive(Debug)]
+    struct E;
+
+    impl core::fmt::Display for E {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            write!(f, "Execute imports functions in env failed")
+        }
+    }
+
+    impl HostError for E {}
 
     /// Env resolver for wasmi
     struct EnvResolver;
@@ -50,7 +60,7 @@ fn wasmi_coremark(b: &[u8]) {
         ) -> Result<Option<RuntimeValue>, Trap> {
             match index {
                 0 => Ok(Some(RuntimeValue::from(clock_ms()))),
-                _ => Err(Trap::new(TrapKind::Unreachable)),
+                _ => Err(Trap::new(TrapKind::Host(Box::new(E)))),
             }
         }
     }
