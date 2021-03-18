@@ -1,10 +1,10 @@
 /// ENV clock_ms
-fn clock_ms() -> i32 {
+fn clock_ms() -> u32 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("Clock may have gone backwards")
-        .as_millis() as i32
+        .as_millis() as u32
 }
 
 /// Wasmtime coremark
@@ -18,6 +18,8 @@ fn wasmtime_coremark(b: &[u8]) {
         .func("env", "clock_ms", || clock_ms())
         .expect("Link clock_ms failed");
 
+    println!("Running CoreMark 1.0... ");
+
     let res = linker
         .instantiate(
             &Module::new(store.engine(), b).expect("Init wasm module failed in wasmtime coremark"),
@@ -28,14 +30,14 @@ fn wasmtime_coremark(b: &[u8]) {
         .call(&[])
         .expect("failed running coremark in wasmtime");
 
-    println!("{:?}", res);
+    println!("Result: {:?}", res);
 }
 
+/// WASMi coremark
 fn wasmi_coremark(b: &[u8]) {
     use wasmi::{
         Error, Externals, FuncInstance, FuncRef, HostError, ImportsBuilder, ModuleImportResolver,
-        ModuleInstance, NopExternals, RuntimeArgs, RuntimeValue, Signature, Trap, TrapKind,
-        ValueType,
+        ModuleInstance, RuntimeArgs, RuntimeValue, Signature, Trap, TrapKind, ValueType,
     };
 
     #[derive(Debug)]
@@ -82,6 +84,8 @@ fn wasmi_coremark(b: &[u8]) {
         }
     }
 
+    println!("Running CoreMark 1.0... ");
+
     let res = ModuleInstance::new(
         &wasmi::Module::from_buffer(
             wabt::wat2wasm(b).expect("Failed to parse `coremark-mininal.wat`"),
@@ -91,9 +95,9 @@ fn wasmi_coremark(b: &[u8]) {
     )
     .expect("Init wasmi module of coremark-minial failed")
     .assert_no_start()
-    .invoke_export("run", &[], &mut NopExternals);
+    .invoke_export("run", &[], &mut EnvResolver);
 
-    println!("{:?}", res);
+    println!("Result: {:?}", res);
 }
 
 fn main() {
