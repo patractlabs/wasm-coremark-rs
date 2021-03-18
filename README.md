@@ -3,6 +3,12 @@
 This repo provides script for running the [coremark-minimal.wasm][0] using 
 wasmtime and wasmi.
 
+## Usage
+
+```
+usage: bm [wasmi|wasmitime: string] [times: number]
+```
+
 ## Result
 
 > 24 Cores, 64 GB MEM, ubuntu 20.04

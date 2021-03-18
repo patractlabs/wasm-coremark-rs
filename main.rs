@@ -8,7 +8,7 @@ fn clock_ms() -> u32 {
 }
 
 /// Wasmtime coremark
-fn wasmtime_coremark(b: &[u8]) {
+fn wasmtime_coremark(b: &[u8]) -> f32 {
     use wasmtime::{Linker, Module, Store, Val};
 
     let store = Store::default();
@@ -17,8 +17,6 @@ fn wasmtime_coremark(b: &[u8]) {
     linker
         .func("env", "clock_ms", || clock_ms())
         .expect("Link clock_ms failed");
-
-    println!("Running CoreMark 1.0... ");
 
     if let Val::F32(res) = linker
         .instantiate(
@@ -30,14 +28,14 @@ fn wasmtime_coremark(b: &[u8]) {
         .call(&[])
         .expect("Failed running coremark in wasmtime")[0]
     {
-        println!("Result: {:?}", res);
+        res as f32
     } else {
         panic!("Failed running coremark in wasmtime");
     }
 }
 
 /// WASMi coremark
-fn wasmi_coremark(b: &[u8]) {
+fn wasmi_coremark(b: &[u8]) -> f32 {
     use wasmi::{
         Error, Externals, FuncInstance, FuncRef, HostError, ImportsBuilder, ModuleImportResolver,
         ModuleInstance, RuntimeArgs, RuntimeValue, Signature, Trap, TrapKind, ValueType,
@@ -87,8 +85,6 @@ fn wasmi_coremark(b: &[u8]) {
         }
     }
 
-    println!("Running CoreMark 1.0... ");
-
     if let RuntimeValue::F32(res) = ModuleInstance::new(
         &wasmi::Module::from_buffer(
             wabt::wat2wasm(b).expect("Failed to parse `coremark-mininal.wat`"),
@@ -102,23 +98,54 @@ fn wasmi_coremark(b: &[u8]) {
     .expect("Failed running coremark in wasmi")
     .expect("Failed running coremark in wasmi")
     {
-        println!("Result: {:?}", res);
+        f32::from(res)
     } else {
         panic!("Failed running coremark in wasmi");
     }
 }
 
-fn main() {
-    let args = std::env::args().collect::<Vec<String>>();
-    let help = || println!("usage: {} wasmi|wasmitime", args[0]);
-    let bytes = include_bytes!("coremark-minimal.wat");
+/// Repeat running coremark
+async fn repeat<F>(b: &[u8], f: F, r: usize) -> f32
+where
+    F: Fn(&[u8]) -> f32,
+{
+    let mut v = vec![];
+    for _ in 0..r {
+        v.push(async { f(b) });
+    }
 
+    futures::future::join_all(v).await.iter().sum::<f32>() / r as f32
+}
+
+async fn async_main() {
+    let args = std::env::args().collect::<Vec<String>>();
+    let help = || {
+        println!(
+            "usage: {} [wasmi|wasmitime: string] [times: number]",
+            args[0]
+        )
+    };
+    let bytes = include_bytes!("coremark-minimal.wat");
     match args.len() {
-        2 => match args[1].as_str() {
-            "wasmi" => wasmi_coremark(bytes),
-            "wasmtime" => wasmtime_coremark(bytes),
-            _ => help(),
-        },
+        2 | 3 => {
+            let r: usize = if args.len() == 2 {
+                1
+            } else {
+                args[2].parse::<usize>().unwrap_or(1)
+            };
+
+            println!("Running Coremark 1.0 for {} times...", r);
+
+            match args[1].as_str() {
+                "wasmi" => println!("Result: {}", repeat(bytes, wasmi_coremark, r).await),
+                "wasmtime" => println!("Result: {}", repeat(bytes, wasmtime_coremark, r).await),
+                _ => help(),
+            }
+        }
         _ => help(),
     }
+}
+
+fn main() {
+    futures::executor::block_on(async_main());
 }
