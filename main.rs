@@ -28,11 +28,38 @@ fn wasmtime_coremark(b: &[u8]) -> f32 {
         .call(&[])
         .expect("Failed running coremark in wasmtime")[0]
     {
-        res as f32
+        f32::from_bits(res)
     } else {
         panic!("Failed running coremark in wasmtime");
     }
 }
+
+
+/// Wasm3 coremark
+fn wasm3_coremark(b: &[u8]) -> f32 {
+    use wasm3::{Environment, Module};
+
+    let env = Environment::new().expect("Unable to create environment");
+    let rt = env
+        .create_runtime(2048)
+        .expect("Unable to create runtime");
+    let module = Module::parse(&env, &b[..])
+        .expect("Unable to parse module");
+
+    let mut module = rt.load_module(module).expect("Unable to load module");
+    
+    module
+        .link_function::<(), u32>("env", "clock_ms", clock_ms_wrap)
+        .expect("Unable to link function");
+
+    let func = module
+        .find_function::<(), f32>("run")
+        .expect("Unable to find function");
+
+    func.call().unwrap()
+}
+
+wasm3::make_func_wrapper!(clock_ms_wrap: clock_ms() -> u32);
 
 /// WASMi coremark
 fn wasmi_coremark(b: &[u8]) -> f32 {
@@ -86,9 +113,7 @@ fn wasmi_coremark(b: &[u8]) -> f32 {
     }
 
     if let RuntimeValue::F32(res) = ModuleInstance::new(
-        &wasmi::Module::from_buffer(
-            wabt::wat2wasm(b).expect("Failed to parse `coremark-mininal.wat`"),
-        )
+        &wasmi::Module::from_buffer(b)
         .expect("Failed to parse parsed `coremark-mininal.wasm`"),
         &ImportsBuilder::default().with_resolver("env", &EnvResolver),
     )
@@ -104,42 +129,27 @@ fn wasmi_coremark(b: &[u8]) -> f32 {
     }
 }
 
-/// Repeat running coremark
-async fn repeat<F>(b: &'static [u8], f: F, r: usize) -> f32
-where
-    F: Fn(&[u8]) -> f32 + Sync + std::marker::Send + Copy + 'static,
-{
-    let mut v = vec![];
-    for _ in 0..r {
-        v.push(async_std::task::spawn(async move { f(b) }));
-    }
-
-    futures::future::join_all(v).await.iter().sum::<f32>() / r as f32
-}
-
 #[async_std::main]
 async fn main() {
     let args = std::env::args().collect::<Vec<String>>();
     let help = || {
         println!(
-            "usage: {} [wasmi|wasmitime: string] [times: number]",
+            "usage: {} [wasmi|wasmtime|wasm3: string]",
             args[0]
         )
     };
-    let bytes = include_bytes!("coremark-minimal.wat");
+    let coremark_wasm = include_bytes!("coremark-minimal.wasm");
+
     match args.len() {
-        2 | 3 => {
-            let r: usize = if args.len() == 2 {
-                1
-            } else {
-                args[2].parse::<usize>().unwrap_or(1)
-            };
+        2 => {
+            let engine = args[1].as_str();
 
-            println!("Running Coremark 1.0 for {} times...", r);
+            println!("Running Coremark 1.0 using {}... [should take 12..20 seconds]", engine);
 
-            match args[1].as_str() {
-                "wasmi" => println!("Result: {}", repeat(bytes, wasmi_coremark, r).await),
-                "wasmtime" => println!("Result: {}", repeat(bytes, wasmtime_coremark, r).await),
+            match engine {
+                "wasmi" => println!("Result: {}", wasmi_coremark(coremark_wasm)),
+                "wasmtime" => println!("Result: {}", wasmtime_coremark(coremark_wasm)),
+                "wasm3" => println!("Result: {}", wasm3_coremark(coremark_wasm)),
                 _ => help(),
             }
         }
