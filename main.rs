@@ -105,19 +105,20 @@ fn wasmi_coremark(b: &[u8]) -> f32 {
 }
 
 /// Repeat running coremark
-async fn repeat<F>(b: &[u8], f: F, r: usize) -> f32
+async fn repeat<F>(b: &'static [u8], f: F, r: usize) -> f32
 where
-    F: Fn(&[u8]) -> f32,
+    F: Fn(&[u8]) -> f32 + Sync + std::marker::Send + Copy + 'static,
 {
     let mut v = vec![];
     for _ in 0..r {
-        v.push(async { f(b) });
+        v.push(async_std::task::spawn(async move { f(b) }));
     }
 
     futures::future::join_all(v).await.iter().sum::<f32>() / r as f32
 }
 
-async fn async_main() {
+#[async_std::main]
+async fn main() {
     let args = std::env::args().collect::<Vec<String>>();
     let help = || {
         println!(
@@ -144,8 +145,4 @@ async fn async_main() {
         }
         _ => help(),
     }
-}
-
-fn main() {
-    futures::executor::block_on(async_main());
 }

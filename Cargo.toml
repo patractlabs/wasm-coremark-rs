@@ -9,6 +9,7 @@ name = "bm"
 path = "main.rs"
 
 [dependencies]
+async-std = { version = "1.9.0", features = ["attributes"]}
 futures = "0.3.13"
 wasmi = "0.8.0"
 wasmtime = "0.25.0"
