@@ -9,7 +9,7 @@ fn clock_ms() -> u32 {
 
 /// Wasmtime coremark
 fn wasmtime_coremark(b: &[u8]) {
-    use wasmtime::{Linker, Module, Store};
+    use wasmtime::{Linker, Module, Store, Val};
 
     let store = Store::default();
     let mut linker = Linker::new(&store);
@@ -20,7 +20,7 @@ fn wasmtime_coremark(b: &[u8]) {
 
     println!("Running CoreMark 1.0... ");
 
-    let res = linker
+    if let Val::F32(res) = linker
         .instantiate(
             &Module::new(store.engine(), b).expect("Init wasm module failed in wasmtime coremark"),
         )
@@ -28,9 +28,12 @@ fn wasmtime_coremark(b: &[u8]) {
         .get_func("run")
         .expect("Could not find function `run` in the coremark")
         .call(&[])
-        .expect("failed running coremark in wasmtime");
-
-    println!("Result: {:?}", res);
+        .expect("Failed running coremark in wasmtime")[0]
+    {
+        println!("Result: {:?}", res);
+    } else {
+        panic!("Failed running coremark in wasmtime");
+    }
 }
 
 /// WASMi coremark
@@ -86,7 +89,7 @@ fn wasmi_coremark(b: &[u8]) {
 
     println!("Running CoreMark 1.0... ");
 
-    let res = ModuleInstance::new(
+    if let RuntimeValue::F32(res) = ModuleInstance::new(
         &wasmi::Module::from_buffer(
             wabt::wat2wasm(b).expect("Failed to parse `coremark-mininal.wat`"),
         )
@@ -95,13 +98,27 @@ fn wasmi_coremark(b: &[u8]) {
     )
     .expect("Init wasmi module of coremark-minial failed")
     .assert_no_start()
-    .invoke_export("run", &[], &mut EnvResolver);
-
-    println!("Result: {:?}", res);
+    .invoke_export("run", &[], &mut EnvResolver)
+    .expect("Failed running coremark in wasmi")
+    .expect("Failed running coremark in wasmi")
+    {
+        println!("Result: {:?}", res);
+    } else {
+        panic!("Failed running coremark in wasmi");
+    }
 }
 
 fn main() {
+    let args = std::env::args().collect::<Vec<String>>();
+    let help = || println!("usage: {} wasmi|wasmitime", args[0]);
     let bytes = include_bytes!("coremark-minimal.wat");
-    wasmtime_coremark(bytes);
-    wasmi_coremark(bytes);
+
+    match args.len() {
+        2 => match args[1].as_str() {
+            "wasmi" => wasmi_coremark(bytes),
+            "wasmtime" => wasmtime_coremark(bytes),
+            _ => help(),
+        },
+        _ => help(),
+    }
 }
