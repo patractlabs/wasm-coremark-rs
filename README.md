@@ -6,16 +6,24 @@ wasmtime and wasmi.
 ## Usage
 
 ```
-usage: bm [wasmi|wasmitime: string] [times: number]
+usage: bm [wasmitime|wasm3|wasmi: string] [times: number]
 ```
 
-## Result
+## CoreMark
 
-> 24 Cores, 64 GB MEM, ubuntu 20.04
+### Test Machine
 
-| wasmtime   | wasm3    | wasmi    |
-|------------|----------|----------|
-| 1185203011 | 1753.258 | 15.01727 |
+| CPU Model                           | CPU Speed | RAM Speed | CPU Cores | MEM  |
+|-------------------------------------|-----------|-----------|-----------|------|
+| AMD Ryzen 9 5900X 12-Core Processor | 2061.209  | 3200 MT/S | 24        | 64GB |
+
+### Result
+
+| wasmtime  | wasm3     | wasmi    |
+|-----------|-----------|----------|
+| 20885.547 | 1672.8003 | 516.1896 |
+
+The `coremark-minimal.wasm` we are using here does not produce text output like [coremark][1], just the final test result. 
 
 
 ## LICENSE
@@ -23,3 +31,4 @@ usage: bm [wasmi|wasmitime: string] [times: number]
 MIT
 
 [0]: https://github.com/wasm3/wasm-coremark
+[1]: https://github.com/eembc/coremark#log-file-format
