@@ -1,36 +1,43 @@
 /// ENV clock_ms
 fn clock_ms() -> u32 {
     use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
+    let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("Clock may have gone backwards")
-        .as_millis() as u32
+        .as_millis() as u32;
+    println!("clock_ms(): {now}");
+    now
 }
 
 /// Wasmtime coremark
 fn wasmtime_coremark(b: &[u8]) -> f32 {
+    use core::slice;
     use wasmtime::{Linker, Module, Store, Val};
 
-    let store = Store::default();
-    let mut linker = Linker::new(&store);
+    let mut store = <Store<()>>::default();
+    let engine = store.engine();
+    let mut linker = Linker::new(&engine);
 
     linker
-        .func("env", "clock_ms", || clock_ms())
+        .func_wrap("env", "clock_ms", || clock_ms())
         .expect("Link clock_ms failed");
+    let module =
+        Module::new(store.engine(), b).expect("Init wasm module failed in wasmtime coremark");
 
-    if let Val::F32(res) = linker
-        .instantiate(
-            &Module::new(store.engine(), b).expect("Init wasm module failed in wasmtime coremark"),
-        )
+    let mut result = Val::F32(0);
+    linker
+        .instantiate(&mut store, &module)
         .expect("Link module core-mark failed")
-        .get_func("run")
+        .get_func(&mut store, "run")
         .expect("Could not find function `run` in the coremark")
-        .call(&[])
-        .expect("Failed running coremark in wasmtime")[0]
-    {
-        f32::from_bits(res)
-    } else {
-        panic!("Failed running coremark in wasmtime");
+        .call(&mut store, &[], slice::from_mut(&mut result))
+        .expect("Failed running coremark in wasmtime");
+    match result {
+        Val::F32(bits) => f32::from_bits(bits),
+        _ => panic!(
+            "failed running coremark using Wasmtime. expected F32 result but got: {:?}",
+            result
+        ),
     }
 }
 
@@ -57,70 +64,39 @@ fn wasm3_coremark(b: &[u8]) -> f32 {
 
 wasm3::make_func_wrapper!(clock_ms_wrap: clock_ms() -> u32);
 
-/// wasmi coremark
-fn wasmi_coremark(b: &[u8]) -> f32 {
+fn wasmi_coremark(wasm: &[u8]) -> f32 {
+    use core::slice;
     use wasmi::{
-        Error, Externals, FuncInstance, FuncRef, HostError, ImportsBuilder, ModuleImportResolver,
-        ModuleInstance, RuntimeArgs, RuntimeValue, Signature, Trap, TrapKind, ValueType,
+        core::{Value, F32},
+        Engine, Extern, Func, Linker, Module, Store,
     };
 
-    #[derive(Debug)]
-    struct E;
+    let engine = Engine::default();
+    let mut store = Store::new(&engine, ());
 
-    impl core::fmt::Display for E {
-        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-            write!(f, "Execute imports functions in env failed")
-        }
-    }
+    let mut linker = <Linker<()>>::new();
+    let clock_ms = Func::wrap(&mut store, || clock_ms() as i32);
+    linker
+        .define("env", "clock_ms", clock_ms)
+        .expect("failed to define `clock_ms` for wasmi v1");
 
-    impl HostError for E {}
-
-    /// Env resolver for wasmi
-    struct EnvResolver;
-
-    impl Externals for EnvResolver {
-        fn invoke_index(
-            &mut self,
-            index: usize,
-            _args: RuntimeArgs,
-        ) -> Result<Option<RuntimeValue>, Trap> {
-            match index {
-                0 => Ok(Some(RuntimeValue::from(clock_ms()))),
-                _ => Err(Trap::new(TrapKind::Host(Box::new(E)))),
-            }
-        }
-    }
-
-    impl ModuleImportResolver for EnvResolver {
-        fn resolve_func(&self, field_name: &str, _signature: &Signature) -> Result<FuncRef, Error> {
-            Ok(FuncInstance::alloc_host(
-                Signature::new(&[][..], Some(ValueType::I32)),
-                match field_name {
-                    "clock_ms" => 0,
-                    _ => {
-                        return Err(Error::Instantiation(format!(
-                            "Export {} not found",
-                            field_name
-                        )))
-                    }
-                },
-            ))
-        }
-    }
-
-    if let RuntimeValue::F32(res) = ModuleInstance::new(
-        &wasmi::Module::from_buffer(b).expect("Failed to parse parsed `coremark-mininal.wasm`"),
-        &ImportsBuilder::default().with_resolver("env", &EnvResolver),
-    )
-    .expect("Init wasmi module of coremark-minial failed")
-    .assert_no_start()
-    .invoke_export("run", &[], &mut EnvResolver)
-    .expect("Failed running coremark in wasmi")
-    .expect("Failed running coremark in wasmi")
-    {
-        f32::from(res)
-    } else {
-        panic!("Failed running coremark in wasmi");
+    let module = Module::new(&engine, wasm)
+        .expect("compiling and validating Wasm module failed in wasmi v1 coremark");
+    let instance = linker
+        .instantiate(&mut store, &module)
+        .expect("linking module core-mark failed in wasmi v1")
+        .ensure_no_start(&mut store)
+        .expect("failed to start module instance in wasmi v1");
+    let mut result = Value::F32(F32::from(0.0));
+    let run = instance
+        .get_export(&store, "run")
+        .and_then(Extern::into_func)
+        .expect("could not find function `run` in the coremark `.wasm`");
+    run.call(&mut store, &[], slice::from_mut(&mut result))
+        .expect("failed running coremark in wasmi v1");
+    match result {
+        Value::F32(value) => value.into(),
+        unexpected => panic!("wasmi v1 result expected `F32` but found: {:?}", unexpected),
     }
 }
 
