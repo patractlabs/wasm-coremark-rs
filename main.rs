@@ -78,25 +78,25 @@ fn wasmi_coremark(wasm: &[u8]) -> f32 {
     let clock_ms = Func::wrap(&mut store, || clock_ms() as i32);
     linker
         .define("env", "clock_ms", clock_ms)
-        .expect("failed to define `clock_ms` for wasmi v1");
+        .expect("failed to define `clock_ms` for wasmi");
 
     let module = Module::new(&engine, wasm)
-        .expect("compiling and validating Wasm module failed in wasmi v1 coremark");
+        .expect("compiling and validating Wasm module failed in wasmi coremark");
     let instance = linker
         .instantiate(&mut store, &module)
-        .expect("linking module core-mark failed in wasmi v1")
+        .expect("linking module core-mark failed in wasmi")
         .ensure_no_start(&mut store)
-        .expect("failed to start module instance in wasmi v1");
+        .expect("failed to start module instance in wasmi");
     let mut result = Value::F32(F32::from(0.0));
     let run = instance
         .get_export(&store, "run")
         .and_then(Extern::into_func)
         .expect("could not find function `run` in the coremark `.wasm`");
     run.call(&mut store, &[], slice::from_mut(&mut result))
-        .expect("failed running coremark in wasmi v1");
+        .expect("failed running coremark in wasmi");
     match result {
         Value::F32(value) => value.into(),
-        unexpected => panic!("wasmi v1 result expected `F32` but found: {:?}", unexpected),
+        unexpected => panic!("wasmi result expected `F32` but found: {:?}", unexpected),
     }
 }
 
