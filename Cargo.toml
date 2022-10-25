@@ -9,7 +9,7 @@ name = "bm"
 path = "main.rs"
 
 [dependencies]
-wasmi = "0.18.0"
+wasmi = { version = "0.19.0", path = "../wasmi/crates/wasmi" }
 wasmtime = "1.0.0"
 wasm3 = { version = "0.3.1", features = ["build-bindgen"] }
 
