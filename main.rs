@@ -67,14 +67,14 @@ wasm3::make_func_wrapper!(clock_ms_wrap: clock_ms() -> u32);
 fn wasmi_coremark(wasm: &[u8]) -> f32 {
     use core::slice;
     use wasmi::{
-        core::{Value, F32},
+        core::{F32},
+        Value,
         Engine, Extern, Func, Linker, Module, Store,
     };
 
     let engine = Engine::default();
     let mut store = Store::new(&engine, ());
-
-    let mut linker = <Linker<()>>::new();
+    let mut linker = <Linker<()>>::new(&engine);
     let clock_ms = Func::wrap(&mut store, || clock_ms() as i32);
     linker
         .define("env", "clock_ms", clock_ms)
